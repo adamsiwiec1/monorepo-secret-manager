@@ -10,28 +10,6 @@ CLI and TypeScript SDK for syncing env files, SSH keypairs, TLS bundles, JSON, a
 
 You keep files on disk (typically under `.environments/`). `msm` uploads each item as a secret, downloads the latest version, writes it to a service path, or prunes old versions. Staging and production can use different providers — for example local staging and GCP production.
 
-This package was previously published as `gcp-monorepo-secret-manager`. See [MIGRATION.md](./MIGRATION.md).
-
-## Table of contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Install](#install)
-- [Quick start](#quick-start)
-- [How it works](#how-it-works)
-- [Backends](#backends)
-- [Secret kinds](#secret-kinds)
-- [Configuration](#configuration)
-- [CLI](#cli)
-- [Programmatic API](#programmatic-api)
-- [CI/CD](#cicd)
-- [Secret versions](#secret-versions)
-- [Security](#security)
-- [Development](#development)
-- [Contributing](#contributing)
-- [FOSS template](#foss-template)
-- [License](#license)
-
 ## Features
 
 - Interactive setup (`msm --init`) plus add/remove service commands
