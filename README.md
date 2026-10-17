@@ -10,30 +10,6 @@ CLI and TypeScript SDK for syncing env files, SSH keypairs, TLS bundles, JSON, a
 
 You keep files on disk (typically under `.environments/`). `msm` uploads each item as a secret, downloads the latest version, writes it to a service path, or prunes old versions. Staging and production can use different providers — for example local staging and GCP production.
 
-## Features
-
-- Interactive setup (`msm --init`) plus add/remove service commands
-- Upload, download, redacted peek, and cleanup for one service or all services
-- Per-environment providers: `gcp`, `aws`, `azure`, or `local`
-- Secret kinds: `env-file`, `ssh-keypair`, `tls-bundle`, `json`, `binary`
-- `--set` writes downloaded files to each service’s target path
-- `--override-sa` uses the environment credential chain (ADC, instance roles, Azure identity) instead of a local key file
-- Optional delete policy to cap version count and age
-- `loadConfig()` for apps that fetch an env-file secret at process start
-- Cloud SDKs are optional peers — install only the backend you use
-
-## Requirements
-
-- Node.js 16 or later
-- A backend for each environment you configure
-- Credentials that can read and write secrets on that backend:
-  - GCP: a service-account JSON file, or ADC / Workload Identity (`--override-sa`)
-  - AWS: the default credential chain or `AWS_PROFILE`
-  - Azure: `DefaultAzureCredential`
-  - Local: `MSM_LOCAL_KEY` or `.msm/key` (created by `msm --init`)
-
-Recommended IAM (or equivalent): admin/write for upload and cleanup, read/accessor for download and peek.
-
 ## Install
 
 Global CLI (exposes `msm` and `monorepo-secret-manager`):
@@ -69,6 +45,31 @@ Provider "aws" requires @aws-sdk/client-secrets-manager. Run: npm i -D @aws-sdk/
 ```
 
 Coming from `gcp-monorepo-secret-manager`? Uninstall the old name and follow [MIGRATION.md](./MIGRATION.md).
+
+
+## Features
+
+- Interactive setup (`msm --init`) plus add/remove service commands
+- Upload, download, redacted peek, and cleanup for one service or all services
+- Per-environment providers: `gcp`, `aws`, `azure`, or `local`
+- Secret kinds: `env-file`, `ssh-keypair`, `tls-bundle`, `json`, `binary`
+- `--set` writes downloaded files to each service’s target path
+- `--override-sa` uses the environment credential chain (ADC, instance roles, Azure identity) instead of a local key file
+- Optional delete policy to cap version count and age
+- `loadConfig()` for apps that fetch an env-file secret at process start
+- Cloud SDKs are optional peers — install only the backend you use
+
+## Requirements
+
+- Node.js 16 or later
+- A backend for each environment you configure
+- Credentials that can read and write secrets on that backend:
+  - GCP: a service-account JSON file, or ADC / Workload Identity (`--override-sa`)
+  - AWS: the default credential chain or `AWS_PROFILE`
+  - Azure: `DefaultAzureCredential`
+  - Local: `MSM_LOCAL_KEY` or `.msm/key` (created by `msm --init`)
+
+Recommended IAM (or equivalent): admin/write for upload and cleanup, read/accessor for download and peek.
 
 ## Quick start
 
