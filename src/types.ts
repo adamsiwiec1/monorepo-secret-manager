@@ -1,4 +1,5 @@
-export type Environment = "staging" | "production";
+/** Any environment name defined under `environments` in the config. */
+export type Environment = string;
 
 export type Provider = "gcp" | "aws" | "azure" | "local";
 
@@ -45,6 +46,8 @@ export interface EnvironmentConfig {
   keyPath?: string;
   kmsKeyId?: string;
   credentials?: CredentialsConfig;
+  /** Ask before push/prune. Defaults to true for names starting with "prod". */
+  protected?: boolean;
 }
 
 export interface ServiceSecretConfig {
@@ -58,6 +61,10 @@ export interface ServiceSecretConfig {
 
 export interface ServiceConfig {
   name: string;
+  /** Workspace package dir (e.g. apps/api). Relative item paths resolve inside it. */
+  package?: string;
+  /** remoteNames of top-level `shared` items this service also pulls. */
+  uses?: string[];
   secrets: ServiceSecretConfig[];
   /** @deprecated Legacy env-file path. Prefer secrets[].sourcePath. */
   envPath?: string;
@@ -68,29 +75,39 @@ export interface ServiceConfig {
 }
 
 export interface SecretsConfig {
-  version?: 2;
-  environments: {
-    staging: EnvironmentConfig;
-    production: EnvironmentConfig;
-  };
+  version?: 2 | 3;
+  /** Environment used when -e is not passed. */
+  defaultEnv?: string;
+  environments: Record<string, EnvironmentConfig>;
   services: ServiceConfig[];
+  /** Secrets used by more than one package. Paths resolve from the repo root. */
+  shared?: ServiceSecretConfig[];
   deletePolicy?: DeletePolicy;
   /** Preserved when adapting a v1 config. */
-  serviceAccountPaths?: {
-    staging: string;
-    production: string;
-  };
+  serviceAccountPaths?: Record<string, string>;
   /** Preserved when adapting a v1 config. */
-  projectIds?: {
-    staging: string;
-    production: string;
-  };
+  projectIds?: Record<string, string>;
+}
+
+export interface SecretEvent {
+  service: string;
+  kind: SecretKindId;
+  remoteName: string;
+  action: "push" | "pull" | "write" | "peek" | "prune";
+  status: "ok" | "error" | "skipped" | "dry-run";
+  paths?: string[];
+  output?: string;
+  error?: string;
 }
 
 export interface MonorepoSecretManagerOptions {
   environment: Environment;
   overrideSa?: boolean;
   configPath?: string;
+  /** Report what would happen without writing anywhere. */
+  dryRun?: boolean;
+  /** Receives one event per secret item. Defaults to console output. */
+  onEvent?: (event: SecretEvent) => void;
 }
 
 /** @deprecated Use MonorepoSecretManagerOptions. */

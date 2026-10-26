@@ -1,239 +1,139 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { MonorepoSecretManager } from "../MonorepoSecretManager";
 import { GcpMonorepoSecretManager } from "../GcpMonorepoSecretManager";
-import { ConfigManager } from "../ConfigManager";
-import * as fs from "fs";
 import { SecretBackend } from "../backends/types";
+import { DeletePolicy, SecretEvent } from "../types";
 
-jest.mock("fs");
-jest.mock("../ConfigManager");
-
-const mockFs = fs as jest.Mocked<typeof fs>;
-const MockConfigManager = ConfigManager as jest.MockedClass<typeof ConfigManager>;
+function memoryBackend(): jest.Mocked<SecretBackend> & { store: Map<string, Buffer> } {
+  const store = new Map<string, Buffer>();
+  return {
+    store,
+    provider: "local",
+    get: jest.fn(async (name: string) => {
+      const data = store.get(name);
+      if (!data) throw new Error(`No data found for ${name}`);
+      return { data };
+    }),
+    put: jest.fn(async (name: string, payload) => {
+      store.set(name, payload.data);
+    }),
+    listVersions: jest.fn(async (_name: string) => []),
+    destroyVersions: jest.fn(async (_name: string, _policy: DeletePolicy): Promise<void> => undefined),
+  };
+}
 
 describe("MonorepoSecretManager", () => {
-  const mockServiceConfig = {
-    name: "app",
-    envPath: ".environments/.app.{env}.env",
-    targetPath: "services/app/.env",
-    secretPrefix: "app-env-vars",
-    secrets: [
+  let dir: string;
+  let cwd: string;
+  let events: SecretEvent[];
+  let backend: ReturnType<typeof memoryBackend>;
+
+  const config = {
+    version: 3,
+    defaultEnv: "dev",
+    environments: { dev: { provider: "local" }, "prod-eu": { provider: "local" } },
+    shared: [{ kind: "env-file", remoteName: "shared-env", sourcePath: ".env.shared.{env}", targetPath: ".env.shared" }],
+    services: [
       {
-        kind: "env-file" as const,
-        sourcePath: ".environments/.app.{env}.env",
-        targetPath: "services/app/.env",
-        remoteName: "app-env-vars_ENV_FILE",
+        name: "api",
+        package: "apps/api",
+        uses: ["shared-env"],
+        secrets: [{ kind: "env-file", remoteName: "api-env", sourcePath: ".env.{env}", targetPath: ".env" }],
+      },
+      {
+        name: "web",
+        package: "apps/web",
+        secrets: [{ kind: "env-file", remoteName: "web-env", sourcePath: ".env.{env}", targetPath: ".env" }],
       },
     ],
   };
 
-  const mockBackend: jest.Mocked<SecretBackend> = {
-    provider: "gcp",
-    get: jest.fn(),
-    put: jest.fn(),
-    listVersions: jest.fn(),
-    destroyVersions: jest.fn(),
-  };
-
-  const mockConfigManager = {
-    getProjectId: jest.fn(),
-    getServiceAccountPath: jest.fn(),
-    getServiceByName: jest.fn(),
-    getServiceNames: jest.fn(),
-    getServices: jest.fn(),
-    getDeletePolicy: jest.fn(),
-    getEnvironmentConfig: jest.fn(),
-  };
-
-  const createManager = (environment: "staging" | "production" = "staging") =>
-    new MonorepoSecretManager({
-      environment,
-      overrideSa: true,
-      backend: mockBackend,
-    });
+  const make = (environment = "dev", dryRun = false) =>
+    new MonorepoSecretManager({ environment, backend, dryRun, onEvent: (e) => events.push(e) });
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    MockConfigManager.mockImplementation(() => mockConfigManager as never);
-    mockConfigManager.getProjectId.mockReturnValue("test-project");
-    mockConfigManager.getServiceAccountPath.mockReturnValue("service-account.json");
-    mockConfigManager.getServiceByName.mockReturnValue(mockServiceConfig);
-    mockConfigManager.getServiceNames.mockReturnValue(["app", "api"]);
-    mockConfigManager.getDeletePolicy.mockReturnValue({
-      maxVersions: 10,
-      maxAgeDays: 30,
-      enabled: true,
-    });
-    mockConfigManager.getEnvironmentConfig.mockReturnValue({
-      provider: "gcp",
-      projectId: "test-project",
-      credentials: { path: "service-account.json" },
-    });
-    mockFs.existsSync.mockReturnValue(true);
-    mockFs.readFileSync.mockReturnValue(Buffer.from("NODE_ENV=staging\nPORT=3000"));
-    mockBackend.get.mockResolvedValue({
-      data: Buffer.from("NODE_ENV=staging\nPORT=3000"),
-    });
-    mockBackend.put.mockResolvedValue();
-    mockBackend.destroyVersions.mockResolvedValue();
+    cwd = process.cwd();
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "msm-"));
+    process.chdir(dir);
+    fs.writeFileSync(".secrets-config", JSON.stringify(config));
+    fs.mkdirSync("apps/api", { recursive: true });
+    fs.mkdirSync("apps/web", { recursive: true });
+    fs.writeFileSync(".env.shared.dev", "DB=shared\nTOKEN=s\n");
+    fs.writeFileSync("apps/api/.env.dev", "TOKEN=api\nPORT=1\n");
+    fs.writeFileSync("apps/web/.env.dev", "WEB=1\n");
+    events = [];
+    backend = memoryBackend();
   });
 
-  it("is exported as the deprecated GcpMonorepoSecretManager alias", () => {
+  afterEach(() => {
+    process.chdir(cwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("pushes shared items and every service for 'all', with package-scoped paths", async () => {
+    await make().uploadEnv("all");
+    expect([...backend.store.keys()]).toEqual(["shared-env", "api-env", "web-env"]);
+    expect(backend.store.get("api-env")!.toString()).toContain("TOKEN=api");
+    expect(events.map((e) => e.service)).toEqual(["shared", "api", "web"]);
+  });
+
+  it("pushes only a service's own items when named", async () => {
+    await make().uploadEnv("api");
+    expect([...backend.store.keys()]).toEqual(["api-env"]);
+  });
+
+  it("does not write anything on a dry-run push", async () => {
+    await make("dev", true).uploadEnv("all");
+    expect(backend.put).not.toHaveBeenCalled();
+    expect(events.every((e) => e.status === "dry-run")).toBe(true);
+  });
+
+  it("pulls used shared items into the service and writes targets inside the package", async () => {
+    await make().uploadEnv("all");
+    fs.rmSync("apps/api/.env.dev");
+    const pulled = await make().downloadEnv("api");
+    expect(pulled.map((e) => e.remoteName)).toEqual(["shared-env", "api-env"]);
+    expect(fs.readFileSync("apps/api/.env.dev", "utf8")).toContain("PORT=1");
+    await make().setEnv("api");
+    expect(fs.existsSync("apps/api/.env")).toBe(true);
+    expect(fs.existsSync(".env.shared")).toBe(true);
+  });
+
+  it("uses the env name for {env} when it is not staging or production", async () => {
+    fs.writeFileSync("apps/web/.env.prod-eu", "WEB=eu\n");
+    await make("prod-eu").uploadEnv("web");
+    expect(backend.store.get("web-env")!.toString()).toBe("WEB=eu\n");
+  });
+
+  it("merges shared then service values for export, service wins", async () => {
+    await make().uploadEnv("all");
+    expect(await make().exportEnv("api")).toEqual({ DB: "shared", TOKEN: "api", PORT: "1" });
+  });
+
+  it("redacts values on peek and skips missing secrets", async () => {
+    await make().uploadEnv("web");
+    const peeked = await make().peekEnv("all");
+    const web = peeked.find((e) => e.service === "web")!;
+    expect(web.output).toBe("WEB=********\n");
+    expect(peeked.find((e) => e.service === "api")!.status).toBe("skipped");
+  });
+
+  it("prunes with the delete policy", async () => {
+    await make().cleanupVersions("web");
+    expect(backend.destroyVersions).toHaveBeenCalledWith("web-env", expect.objectContaining({ maxVersions: 10 }));
+  });
+
+  it("names available services for an unknown one", async () => {
+    await expect(make().uploadEnv("nope")).rejects.toThrow("Services: api, web");
+  });
+
+  it("rejects an unknown environment with the list of names", () => {
+    expect(() => make("qa")).toThrow("Environments: dev, prod-eu");
+  });
+
+  it("keeps the deprecated GCP alias", () => {
     expect(GcpMonorepoSecretManager).toBe(MonorepoSecretManager);
-  });
-
-  describe("constructor", () => {
-    it("should initialize with staging environment", () => {
-      createManager("staging");
-      expect(MockConfigManager).toHaveBeenCalledWith(undefined);
-      expect(mockConfigManager.getEnvironmentConfig).toHaveBeenCalledWith("staging");
-    });
-
-    it("should initialize with production environment", () => {
-      createManager("production");
-      expect(mockConfigManager.getEnvironmentConfig).toHaveBeenCalledWith("production");
-    });
-
-    it("should use custom config path when provided", () => {
-      new MonorepoSecretManager({
-        environment: "staging",
-        overrideSa: true,
-        configPath: "custom-config.json",
-        backend: mockBackend,
-      });
-      expect(MockConfigManager).toHaveBeenCalledWith("custom-config.json");
-    });
-
-    it("should throw error when service account file does not exist", () => {
-      mockFs.existsSync.mockReturnValue(false);
-      expect(
-        () =>
-          new MonorepoSecretManager({
-            environment: "staging",
-            overrideSa: false,
-            backend: mockBackend,
-          })
-      ).toThrow("Service account file not found at service-account.json");
-    });
-  });
-
-  describe("getAvailableServices", () => {
-    it("should return list of available services", () => {
-      const manager = createManager();
-      expect(manager.getAvailableServices()).toEqual(["app", "api"]);
-    });
-  });
-
-  describe("path resolution", () => {
-    it("should resolve staging environment path correctly", () => {
-      const manager = createManager("staging");
-      expect((manager as any).getEnvPath("app")).toBe(".environments/.app.stg.env");
-    });
-
-    it("should resolve production environment path correctly", () => {
-      const manager = createManager("production");
-      expect((manager as any).getEnvPath("app")).toBe(".environments/.app.prod.env");
-    });
-
-    it("should resolve secret name correctly", () => {
-      const manager = createManager();
-      expect((manager as any).getSecretName("app")).toBe("app-env-vars_ENV_FILE");
-    });
-
-    it("should resolve target path correctly", () => {
-      const manager = createManager();
-      expect((manager as any).getTargetPath("app")).toBe("services/app/.env");
-    });
-
-    it("should throw error for non-existent service", () => {
-      mockConfigManager.getServiceByName.mockReturnValue(undefined);
-      const manager = createManager();
-      expect(() => (manager as any).getEnvPath("nonexistent")).toThrow(
-        "Service 'nonexistent' not found in configuration"
-      );
-    });
-  });
-
-  describe("uploadEnv", () => {
-    it("should throw error when environment file does not exist", async () => {
-      mockFs.existsSync.mockReturnValue(false);
-      const manager = createManager();
-      await expect(manager.uploadEnv("app")).rejects.toThrow(
-        "Environment file not found at .environments/.app.stg.env"
-      );
-    });
-
-    it("should upload and clean up a service", async () => {
-      const manager = createManager();
-      await manager.uploadEnv("app");
-      expect(mockBackend.put).toHaveBeenCalledWith("app-env-vars_ENV_FILE", {
-        data: Buffer.from("NODE_ENV=staging\nPORT=3000"),
-      });
-      expect(mockBackend.destroyVersions).toHaveBeenCalled();
-    });
-
-    it("should handle all services", async () => {
-      const manager = createManager();
-      await manager.uploadEnv("all");
-      expect(mockConfigManager.getServiceNames).toHaveBeenCalled();
-      expect(mockBackend.put).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe("downloadEnv", () => {
-    it("should write the downloaded env file", async () => {
-      const manager = createManager();
-      await manager.downloadEnv("app");
-      expect(mockBackend.get).toHaveBeenCalledWith("app-env-vars_ENV_FILE");
-      expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-        ".environments/.app.stg.env",
-        "NODE_ENV=staging\nPORT=3000",
-        { mode: 0o600 }
-      );
-    });
-  });
-
-  describe("setEnv", () => {
-    it("should write the target env file", async () => {
-      const manager = createManager();
-      await manager.setEnv("app");
-      expect(mockFs.writeFileSync).toHaveBeenCalledWith(
-        "services/app/.env",
-        "NODE_ENV=staging\nPORT=3000",
-        { mode: 0o600 }
-      );
-    });
-  });
-
-  describe("cleanupVersions", () => {
-    it("should skip cleanup when delete policy is disabled", async () => {
-      mockConfigManager.getDeletePolicy.mockReturnValue({ enabled: false });
-      const manager = createManager();
-      await manager.cleanupVersions("app");
-      expect(mockBackend.destroyVersions).toHaveBeenCalledWith(
-        "app-env-vars_ENV_FILE",
-        { enabled: false }
-      );
-    });
-
-    it("should handle all services cleanup", async () => {
-      const manager = createManager();
-      await manager.cleanupVersions("all");
-      expect(mockConfigManager.getServiceNames).toHaveBeenCalled();
-    });
-  });
-
-  describe("peekEnv", () => {
-    it("prints a redacted env file", async () => {
-      const log = jest.spyOn(console, "log").mockImplementation(() => undefined);
-      mockBackend.get.mockResolvedValue({
-        data: Buffer.from("TOKEN=super-secret\n"),
-      });
-      const manager = createManager();
-      await manager.peekEnv("app");
-      const printed = log.mock.calls.map((call) => String(call[0])).join("\n");
-      expect(printed).toContain("TOKEN=********");
-      expect(printed).not.toContain("super-secret");
-      log.mockRestore();
-    });
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "monorepo-secret-manager",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "A multi-cloud secret manager for monorepos. Sync env files, SSH keys, TLS bundles, and other secret kinds to GCP, AWS, Azure, or a local encrypted store.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -59,7 +59,9 @@
     "LICENSE"
   ],
   "dependencies": {
-    "dotenv": "^16.0.0"
+    "commander": "^12.1.0",
+    "dotenv": "^16.0.0",
+    "picocolors": "^1.1.1"
   },
   "peerDependencies": {
     "@aws-sdk/client-secrets-manager": "^3.0.0",
@@ -98,7 +100,7 @@
     "typescript": "^5.0.0"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   },
   "jest": {
     "preset": "ts-jest",
