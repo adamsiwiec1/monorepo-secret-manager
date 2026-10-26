@@ -18,6 +18,11 @@ export interface ExportOptions extends GlobalOptions {
   format: "dotenv" | "json" | "github";
 }
 
+export interface CiOptions extends GlobalOptions {
+  workflow: string;
+  setSecrets?: boolean;
+}
+
 export interface Handlers {
   init(opts: GlobalOptions): Promise<void>;
   status(opts: GlobalOptions): Promise<void>;
@@ -28,6 +33,7 @@ export interface Handlers {
   prune(service: string, opts: GlobalOptions): Promise<void>;
   export(service: string, opts: ExportOptions): Promise<void>;
   run(service: string, command: string[], opts: GlobalOptions): Promise<void>;
+  ciSetup(service: string, opts: CiOptions): Promise<void>;
   serviceAdd(opts: GlobalOptions): Promise<void>;
   serviceRm(name: string, opts: GlobalOptions): Promise<void>;
 }
@@ -47,6 +53,11 @@ Core
   prune [service]           Drop old remote versions
   export [service]          Print env values for CI (dotenv, json, github)
   run [service] -- <cmd>    Run a command with secrets in its env
+
+CI
+  ci setup [service]        Write a GitHub Actions workflow via gh
+    --set-secrets           Also set auth secrets with 'gh secret set'
+    --workflow <path>       Default: .github/workflows/msm.yml
 
 Services
   service add               Add a service interactively
@@ -70,6 +81,7 @@ Examples
   msm push api -e production -y
   msm run api -- npm start
   msm export api -e staging --format github
+  msm ci setup -e staging --set-secrets
 `;
 
 function globals(command: Command): GlobalOptions {
@@ -142,6 +154,13 @@ export function createProgram(
       }
       return handlers.run(service || "all", runArgs, globals(c));
     });
+
+  const ci = program.command("ci").description("configure CI");
+  ci.command("setup [service]")
+    .description("write a GitHub Actions workflow via gh")
+    .option("--workflow <path>", "workflow file", ".github/workflows/msm.yml")
+    .option("--set-secrets", "set auth secrets with gh secret set")
+    .action((service: string | undefined, _o, c) => handlers.ciSetup(service || "all", globals(c) as CiOptions));
 
   const service = program.command("service").description("manage services");
   service.command("add").description("add a service").action((_o, c) => handlers.serviceAdd(globals(c)));

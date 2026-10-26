@@ -130,4 +130,70 @@ describe("cli handlers (local provider)", () => {
     await createHandlers(io).serviceRm("api", opts({ yes: true }));
     expect(JSON.parse(fs.readFileSync(".secrets-config", "utf8")).services).toEqual([]);
   });
+
+  describe("ci setup", () => {
+    const useGcp = () => {
+      const config = JSON.parse(fs.readFileSync(".secrets-config", "utf8"));
+      config.environments.ci = { provider: "gcp", projectId: "p" };
+      fs.writeFileSync(".secrets-config", JSON.stringify(config));
+    };
+    const ciOpts = (extra: Partial<GlobalOptions> & { setSecrets?: boolean } = {}) => ({
+      ...opts({ env: "ci", ...extra }),
+      workflow: ".github/workflows/msm.yml",
+    });
+    const fakeGh = (calls: [string[], string | undefined][], existing = "", auth = 0) =>
+      (args: string[], input?: string) => {
+        calls.push([args, input]);
+        if (args[0] === "auth") return { status: auth, stdout: "" };
+        if (args[1] === "list") return { status: 0, stdout: existing };
+        return { status: 0, stdout: "" };
+      };
+
+    it("fails clearly when gh is logged out", async () => {
+      useGcp();
+      const h = createHandlers({ ...io, gh: fakeGh([], "", 1) });
+      await expect(h.ciSetup("all", ciOpts())).rejects.toThrow("gh auth login");
+    });
+
+    it("rejects the local provider", async () => {
+      const h = createHandlers({ ...io, gh: fakeGh([]) });
+      await expect(h.ciSetup("all", { ...ciOpts(), env: "staging" })).rejects.toThrow("gitignored");
+    });
+
+    it("writes the workflow once and sets secrets from env without echoing them", async () => {
+      useGcp();
+      const calls: [string[], string | undefined][] = [];
+      const h = createHandlers({ ...io, gh: fakeGh(calls, "WIF_SERVICE_ACCOUNT\n") });
+      process.env.WIF_PROVIDER = "super-secret";
+      try {
+        await h.ciSetup("api", ciOpts({ setSecrets: true }));
+      } finally {
+        delete process.env.WIF_PROVIDER;
+      }
+      const yml = fs.readFileSync(".github/workflows/msm.yml", "utf8");
+      expect(yml).toContain("msm export api -e ci --format github --ambient-creds");
+      expect(yml).toContain("google-github-actions/auth@v2");
+      expect(calls).toContainEqual([["secret", "set", "WIF_PROVIDER"], "super-secret"]);
+      expect(out.join("\n")).not.toContain("super-secret");
+      expect(out.join("\n")).toContain("WIF_SERVICE_ACCOUNT exists");
+
+      out = [];
+      await h.ciSetup("api", ciOpts());
+      expect(out[0]).toContain("unchanged");
+    });
+
+    it("--dry-run writes and sets nothing", async () => {
+      useGcp();
+      const calls: [string[], string | undefined][] = [];
+      process.env.WIF_PROVIDER = "x";
+      try {
+        await createHandlers({ ...io, gh: fakeGh(calls) }).ciSetup("all", ciOpts({ dryRun: true, setSecrets: true }));
+      } finally {
+        delete process.env.WIF_PROVIDER;
+      }
+      expect(fs.existsSync(".github/workflows/msm.yml")).toBe(false);
+      expect(calls.some(([a]) => a[1] === "set")).toBe(false);
+      expect(out.join("\n")).toContain("would be created");
+    });
+  });
 });

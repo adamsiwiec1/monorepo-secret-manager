@@ -257,6 +257,11 @@ Core
   export [service]          Print env values for CI (dotenv, json, github)
   run [service] -- <cmd>    Run a command with secrets in its env
 
+CI
+  ci setup [service]        Write a GitHub Actions workflow via gh
+    --set-secrets           Also set auth secrets with 'gh secret set'
+    --workflow <path>       Default: .github/workflows/msm.yml
+
 Services
   service add               Add a service interactively
   service rm <name>         Remove a service
@@ -406,6 +411,28 @@ Authenticate with the provider's short-lived identity (GCP [Workload Identity Fe
 `--format github` adds `::add-mask::` for every value and appends to `$GITHUB_ENV`. Non-interactive runs fail on protected envs unless you pass `-y`, so a CI `push` to production needs it explicitly.
 
 Checkout must include `.secrets-config`. Prefer federated identity over checking in a JSON key.
+
+### Set up CI with `gh`
+
+```bash
+msm ci setup -e staging --dry-run       # preview
+msm ci setup api -e staging --set-secrets
+```
+
+Requires the [GitHub CLI](https://cli.github.com), logged in (`gh auth login`). The command:
+
+1. Writes `.github/workflows/msm.yml` with the auth step for the env's provider, then `msm export --format github`. Rerunning leaves an identical file alone.
+2. Checks the repo secrets that auth step needs and reports which are missing:
+
+| Provider | Secrets |
+| --- | --- |
+| gcp | `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT` |
+| aws | `AWS_ROLE_ARN` (region comes from the env config) |
+| azure | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` |
+
+With `--set-secrets`, each value comes from a shell variable of the same name, or a hidden prompt if the secret is missing. Values go to `gh secret set` over stdin and are never printed.
+
+GitHub Actions secrets are write-only. msm can set them but can't read them back, so they can't serve as an msm backend. Keep your real secrets in GCP, AWS, or Azure. The local store is gitignored, so CI can't use it.
 
 ## Secret versions
 

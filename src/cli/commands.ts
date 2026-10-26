@@ -5,7 +5,8 @@ import { MonorepoSecretManager, SHARED_SERVICE } from "../MonorepoSecretManager"
 import { addService, initializeConfig } from "../cliInit";
 import { createPrompt } from "../prompt";
 import { SecretEvent } from "../types";
-import { ExportOptions, GlobalOptions, Handlers, PullOptions } from "./program";
+import { CiOptions, ExportOptions, GlobalOptions, Handlers, PullOptions } from "./program";
+import { CI_SECRETS, GhRunner, renderWorkflow, requireGh, runGh, writeWorkflow } from "./ci";
 import { Colors, makeColors, shouldColor } from "./ui";
 
 const SDKS: Record<string, string[]> = {
@@ -20,12 +21,40 @@ export interface Io {
   err: (text: string) => void;
   confirm: (question: string) => Promise<boolean>;
   isInteractive: () => boolean;
+  /** Read a value without echoing it. */
+  secret?: (question: string) => Promise<string>;
+  gh?: GhRunner;
 }
 
 export const defaultIo: Io = {
   out: (text) => process.stdout.write(text + "\n"),
   err: (text) => process.stderr.write(text + "\n"),
   isInteractive: () => Boolean(process.stdin.isTTY),
+  secret: (question) =>
+    new Promise((resolve) => {
+      process.stderr.write(question);
+      const stdin = process.stdin;
+      let value = "";
+      stdin.setRawMode?.(true);
+      stdin.resume();
+      stdin.setEncoding("utf8");
+      const onData = (ch: string) => {
+        if (ch === "\r" || ch === "\n" || ch === "\u0004") {
+          stdin.setRawMode?.(false);
+          stdin.pause();
+          stdin.off("data", onData);
+          process.stderr.write("\n");
+          resolve(value);
+        } else if (ch === "\u0003") {
+          process.exit(130);
+        } else if (ch === "\u007f") {
+          value = value.slice(0, -1);
+        } else {
+          value += ch;
+        }
+      };
+      stdin.on("data", onData);
+    }),
   confirm: async (question) => {
     const { question: ask, close } = createPrompt();
     try {
@@ -254,6 +283,40 @@ export function createHandlers(io: Io = defaultIo): Handlers {
         child.on("exit", (exitCode, signal) => resolve(exitCode ?? (signal ? 1 : 0)));
       });
       process.exitCode = code;
+    },
+
+    ciSetup: async (service: string, opts: CiOptions) => {
+      const c = colors(opts);
+      const gh = io.gh || runGh;
+      const cfg = config(opts);
+      checkService(cfg, service);
+      const env = resolveEnv(opts, cfg);
+      const envCfg = cfg.getEnvironmentConfig(env);
+      requireGh(gh);
+
+      const body = renderWorkflow({ env, service, provider: envCfg.provider, region: envCfg.region, config: opts.config });
+      const result = writeWorkflow(opts.workflow, body, Boolean(opts.dryRun));
+      io.out(`${c.green("✓")} ${opts.workflow} ${opts.dryRun && result !== "unchanged" ? "would be " : ""}${result}`);
+
+      const names = CI_SECRETS[envCfg.provider];
+      const list = gh(["secret", "list", "--json", "name", "-q", ".[].name"]);
+      const existing = new Set(list.status === 0 ? list.stdout.split(/\s+/).filter(Boolean) : []);
+      for (const name of names) {
+        let value = opts.setSecrets ? process.env[name] : undefined;
+        if (opts.setSecrets && !value && !existing.has(name) && io.isInteractive() && io.secret) {
+          value = (await io.secret(`${name} (hidden, blank to skip): `)).trim() || undefined;
+        }
+        if (value) {
+          if (!opts.dryRun && gh(["secret", "set", name], value).status !== 0) {
+            throw new Error(`gh secret set ${name} failed. Check repo access with 'gh auth status'.`);
+          }
+          io.out(`${c.green("✓")} secret ${name} ${opts.dryRun ? "would be set" : "set"}`);
+        } else if (existing.has(name)) {
+          io.out(`${c.green("✓")} secret ${name} exists`);
+        } else {
+          io.out(`${c.yellow("!")} secret ${name} missing. Rerun with --set-secrets or: gh secret set ${name}`);
+        }
+      }
     },
 
     serviceAdd: async (opts) => {
