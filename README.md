@@ -10,39 +10,24 @@ CLI and TypeScript SDK for syncing env files, SSH keypairs, TLS bundles, JSON, a
 
 You keep files on disk next to each package (or under `.environments/`). `msm push` uploads each item as a secret, `msm pull` downloads the latest version, and `msm run` injects env values straight into a process. Each environment picks its own provider, so staging can stay local while production uses GCP.
 
+![msm quick start: init, list, push, pull, and run in an npm workspace](assets/quickstart.gif)
+
 ## Install
 
-Global CLI (exposes `msm` and `monorepo-secret-manager`):
+```bash
+npm install -g monorepo-secret-manager   # global CLI: msm
+npm install monorepo-secret-manager      # project dependency: npx msm, plus the SDK
+```
+
+Add the SDK for the cloud backend you use (the local store is built in):
 
 ```bash
-npm install -g monorepo-secret-manager
+npm install @google-cloud/secret-manager            # gcp
+npm install @aws-sdk/client-secrets-manager         # aws
+npm install @azure/identity @azure/keyvault-secrets # azure
 ```
 
-As a project dependency (CLI via `npx` / npm scripts, plus the SDK):
-
-```bash
-npm install monorepo-secret-manager
-```
-
-```bash
-npx msm --help
-```
-
-Install only the SDK for the backend you use:
-
-```bash
-npm install @google-cloud/secret-manager
-npm install @aws-sdk/client-secrets-manager
-npm install @azure/identity @azure/keyvault-secrets
-```
-
-The local backend is built in. No extra package is required.
-
-If a provider SDK is missing, the CLI fails with:
-
-```text
-Provider "aws" requires @aws-sdk/client-secrets-manager. Run: npm i -D @aws-sdk/client-secrets-manager
-```
+If one is missing, the CLI says which package to install.
 
 Upgrading from 2.x or from `gcp-monorepo-secret-manager`? See [MIGRATION.md](./MIGRATION.md).
 
@@ -243,34 +228,7 @@ gcloud/**/*.json
 
 ## CLI
 
-```text
-Usage: msm <command> [service] [options]
-
-  init                  Create .secrets-config (detects your workspace)
-  push [service]        Upload secrets
-  pull [service]        Download secrets and write them to disk
-  run [service] -- cmd  Run a command with secrets in its env
-
-  status                Check config, creds, and SDKs
-  list, ls              Show services and items
-  peek [service]        Show redacted remote values
-  prune [service]       Drop old remote versions
-  export [service]      Print env values (--format dotenv|json|github)
-  add                   Add a service
-  rm <name>             Remove a service
-  ci [service]          Write a GitHub Actions workflow via gh
-                        (--set-secrets, --workflow <path>)
-
-Options
-  -e, --env <name>      Environment (default: defaultEnv)
-  --dry-run             Show what would happen
-  --json                JSON output
-  -y, --yes             Skip prompts
-  --config <path>       Config file (default: .secrets-config)
-  --no-color            No color (NO_COLOR works too)
-
-Service defaults to all. Example: msm pull -e staging && msm run api -- npm start
-```
+![msm --help output](assets/help.gif)
 
 ```bash
 msm list
@@ -467,6 +425,14 @@ npm run build
 | `npm run test:coverage` | Coverage report |
 | `npm run build` | Compile to `dist/` |
 | `npm run dev -- <command>` | Run the CLI via `ts-node` |
+
+The README GIFs are recorded with [VHS](https://github.com/charmbracelet/vhs) against a throwaway workspace and the local store, so no cloud credentials are needed. Tapes live in [`docs/vhs/`](docs/vhs/):
+
+```bash
+npm run build
+vhs docs/vhs/help.tape
+vhs docs/vhs/quickstart.tape
+```
 
 Releases use [semantic-release](https://github.com/semantic-release/semantic-release) on `master` / `main`. See [CHANGELOG.md](CHANGELOG.md).
 
