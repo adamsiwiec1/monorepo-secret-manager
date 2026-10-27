@@ -40,7 +40,7 @@ export class AwsBackend implements SecretBackend {
           KmsKeyId: this.kmsKeyId,
         })
       );
-      console.log(`Created new secret ${name}`);
+      console.error(`Created new secret ${name}`);
     } catch (error) {
       const nameOrMessage =
         (error as { name?: string }).name || (error as Error).message;
@@ -57,7 +57,7 @@ export class AwsBackend implements SecretBackend {
           SecretBinary: payload.data,
         })
       );
-      console.log(`Updated secret ${name} with a new version`);
+      console.error(`Updated secret ${name} with a new version`);
     }
   }
 

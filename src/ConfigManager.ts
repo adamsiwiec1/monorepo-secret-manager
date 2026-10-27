@@ -35,6 +35,8 @@ interface LegacyConfig {
   deletePolicy?: DeletePolicy;
   version?: number;
   environments?: SecretsConfig["environments"];
+  defaultEnv?: string;
+  shared?: ServiceSecretConfig[];
 }
 
 function isLegacyConfig(raw: LegacyConfig): boolean {
@@ -66,6 +68,8 @@ function adaptLegacyService(service: LegacyService): ServiceConfig {
 
   return {
     name: service.name,
+    package: (service as ServiceConfig).package,
+    uses: (service as ServiceConfig).uses,
     envPath: service.envPath,
     targetPath: service.targetPath,
     secretPrefix: service.secretPrefix,
@@ -112,30 +116,34 @@ function adaptLegacyConfig(raw: LegacyConfig): SecretsConfig {
   };
 }
 
+function validateItem(owner: string, secret: ServiceSecretConfig, index: number): void {
+  if (!secret.kind || !SECRET_KINDS.includes(secret.kind)) {
+    throw new Error(`${owner} secret at index ${index} has an invalid kind`);
+  }
+  if (!secret.remoteName) {
+    throw new Error(`${owner} secret at index ${index} is missing remoteName`);
+  }
+}
+
 function normalizeService(service: LegacyService, index: number): ServiceConfig {
   if (!service.name) {
     throw new Error(`Service at index ${index} is missing required field: name`);
   }
 
   const normalized = adaptLegacyService(service);
+  if ((!normalized.secrets || normalized.secrets.length === 0) && normalized.uses?.length) {
+    normalized.secrets = [];
+    return normalized;
+  }
   if (!normalized.secrets || normalized.secrets.length === 0) {
     throw new Error(
       `Service '${service.name}' must include secrets or legacy envPath, targetPath, and secretPrefix`
     );
   }
 
-  normalized.secrets.forEach((secret, secretIndex) => {
-    if (!secret.kind || !SECRET_KINDS.includes(secret.kind)) {
-      throw new Error(
-        `Service '${service.name}' secret at index ${secretIndex} has an invalid kind`
-      );
-    }
-    if (!secret.remoteName) {
-      throw new Error(
-        `Service '${service.name}' secret at index ${secretIndex} is missing remoteName`
-      );
-    }
-  });
+  normalized.secrets.forEach((secret, secretIndex) =>
+    validateItem(`Service '${service.name}'`, secret, secretIndex)
+  );
 
   return normalized;
 }
@@ -200,15 +208,21 @@ export class ConfigManager {
       return adaptLegacyConfig(raw);
     }
 
-    if (!raw.environments) {
+    if (
+      !raw.environments ||
+      typeof raw.environments !== "object" ||
+      Object.keys(raw.environments).length === 0
+    ) {
       throw new Error(
-        "Configuration must include environments.staging and environments.production"
+        "Config must define at least one environment under 'environments', e.g. { \"staging\": { \"provider\": \"local\" } }"
       );
     }
 
     return {
-      version: 2,
+      version: raw.version === 3 ? 3 : 2,
+      defaultEnv: raw.defaultEnv,
       environments: raw.environments,
+      shared: raw.shared,
       services: (raw.services || []).map((service, index) =>
         normalizeService(service, index)
       ),
@@ -219,8 +233,34 @@ export class ConfigManager {
   }
 
   private validateConfig(): void {
-    validateEnvironment("staging", this.config.environments.staging);
-    validateEnvironment("production", this.config.environments.production);
+    for (const [name, env] of Object.entries(this.config.environments)) {
+      validateEnvironment(name, env);
+    }
+
+    if (this.config.defaultEnv && !this.config.environments[this.config.defaultEnv]) {
+      throw new Error(
+        `defaultEnv '${this.config.defaultEnv}' is not defined. Environments: ${this.getEnvironmentNames().join(", ")}`
+      );
+    }
+
+    const shared = this.config.shared || [];
+    if (!Array.isArray(shared)) {
+      throw new Error("shared must be an array if provided");
+    }
+    shared.forEach((item, index) => validateItem("shared", item, index));
+    const sharedNames = new Set(shared.map((item) => item.remoteName));
+    for (const service of this.config.services || []) {
+      if (service.name === "shared" || service.name === "all") {
+        throw new Error(`'${service.name}' is a reserved service name`);
+      }
+      for (const used of service.uses || []) {
+        if (!sharedNames.has(used)) {
+          throw new Error(
+            `Service '${service.name}' uses '${used}', which is not in shared`
+          );
+        }
+      }
+    }
 
     if (this.config.services && !Array.isArray(this.config.services)) {
       throw new Error("Services must be an array if provided");
@@ -255,8 +295,35 @@ export class ConfigManager {
     return this.config;
   }
 
+  getEnvironmentNames(): string[] {
+    return Object.keys(this.config.environments);
+  }
+
+  /** defaultEnv, else staging if defined, else the first environment. */
+  getDefaultEnv(): string {
+    const names = this.getEnvironmentNames();
+    return this.config.defaultEnv || (names.includes("staging") ? "staging" : names[0]);
+  }
+
   getEnvironmentConfig(environment: Environment): EnvironmentConfig {
-    return this.config.environments[environment];
+    const config = this.config.environments[environment];
+    if (!config) {
+      throw new Error(
+        `Unknown environment '${environment}'. Environments: ${this.getEnvironmentNames().join(", ")}`
+      );
+    }
+    return config;
+  }
+
+  /** Production-like envs ask for confirmation before push/prune. */
+  isProtected(environment: Environment): boolean {
+    const config = this.getEnvironmentConfig(environment);
+    if (typeof config.protected === "boolean") return config.protected;
+    return /^prod/i.test(environment);
+  }
+
+  getShared(): ServiceSecretConfig[] {
+    return this.config.shared || [];
   }
 
   getServiceAccountPath(environment: Environment): string {
@@ -265,7 +332,7 @@ export class ConfigManager {
       return fromLegacy;
     }
 
-    const path = this.config.environments[environment].credentials?.path;
+    const path = this.getEnvironmentConfig(environment).credentials?.path;
     if (!path) {
       throw new Error(
         `No service account path configured for ${environment}`
@@ -280,7 +347,7 @@ export class ConfigManager {
       return fromLegacy;
     }
 
-    const projectId = this.config.environments[environment].projectId;
+    const projectId = this.getEnvironmentConfig(environment).projectId;
     if (!projectId) {
       throw new Error(`No project ID configured for ${environment}`);
     }
@@ -316,29 +383,16 @@ export class ConfigManager {
 
   static generateTemplate(outputPath: string = ".secrets-config"): void {
     const template: SecretsConfig = {
-      version: 2,
+      version: 3,
+      defaultEnv: "staging",
       environments: {
-        staging: {
-          provider: "gcp",
-          projectId: "your-staging-project-id",
-          credentials: { path: "gcloud/staging/service-account.json" },
-        },
-        production: {
-          provider: "gcp",
-          projectId: "your-production-project-id",
-          credentials: { path: "gcloud/production/service-account.json" },
-        },
+        staging: { provider: "local", storePath: ".msm/store" },
+        production: { provider: "local", storePath: ".msm/store" },
       },
       services: [],
-      deletePolicy: {
-        maxVersions: 10,
-        maxAgeDays: 30,
-        enabled: true,
-      },
+      deletePolicy: { maxVersions: 10, maxAgeDays: 30, enabled: true },
     };
 
-    fs.writeFileSync(outputPath, JSON.stringify(template, null, 2));
-    console.log(`Configuration template created at ${outputPath}`);
-    console.log("Please update the environments and add services with 'msm --add-service'.");
+    fs.writeFileSync(outputPath, JSON.stringify(template, null, 2) + "\n");
   }
 }

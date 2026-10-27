@@ -37,7 +37,7 @@ export class GcpBackend implements SecretBackend {
         parent: secretPath,
         payload: { data: payload.data },
       });
-      console.log(`Updated secret ${name} with new version: ${version.name}`);
+      console.error(`Updated secret ${name} with new version: ${version.name}`);
     } catch (error) {
       if (!(error as Error).message.includes("NOT_FOUND")) {
         throw error;
@@ -57,7 +57,7 @@ export class GcpBackend implements SecretBackend {
         parent: secretPath,
         payload: { data: payload.data },
       });
-      console.log(`Created new secret ${name} with version: ${version.name}`);
+      console.error(`Created new secret ${name} with version: ${version.name}`);
     }
   }
 
@@ -89,14 +89,14 @@ export class GcpBackend implements SecretBackend {
         return;
       }
 
-      console.log(`Cleaning up ${toDestroy.length} old version(s) of ${name}`);
+      console.error(`Cleaning up ${toDestroy.length} old version(s) of ${name}`);
       for (const version of toDestroy) {
         if (!version.id) {
           continue;
         }
         try {
           await this.client.destroySecretVersion({ name: version.id });
-          console.log(`   Destroyed version: ${version.id.split("/").pop()}`);
+          console.error(`   Destroyed version: ${version.id.split("/").pop()}`);
         } catch (error) {
           console.warn(
             `   Warning: Could not destroy version ${version.id}: ${(error as Error).message}`

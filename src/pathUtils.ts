@@ -2,8 +2,11 @@ import fs from "fs";
 import path from "path";
 import { Environment } from "./types";
 
-export function envSuffix(environment: Environment): "stg" | "prod" {
-  return environment === "staging" ? "stg" : "prod";
+/** staging -> stg and production -> prod (v2 file names); any other env keeps its name. */
+export function envSuffix(environment: Environment): string {
+  if (environment === "staging") return "stg";
+  if (environment === "production") return "prod";
+  return environment;
 }
 
 export function interpolateEnv(
@@ -31,4 +34,10 @@ export function readRequiredFile(filePath: string, label: string): Buffer {
     throw new Error(`${label} not found at ${filePath}`);
   }
   return fs.readFileSync(filePath);
+}
+
+/** Prefix relative paths with a package dir. Absolute paths are left alone. */
+export function scopePath(pkg: string | undefined, p: string): string {
+  if (!pkg || path.isAbsolute(p)) return p;
+  return path.join(pkg, p);
 }

@@ -25,7 +25,7 @@ export class AzureBackend implements SecretBackend {
       azureSecretName(name),
       payload.data.toString("utf8")
     );
-    console.log(`Wrote secret ${name} version ${result.properties.version || "latest"}`);
+    console.error(`Wrote secret ${name} version ${result.properties.version || "latest"}`);
   }
 
   async listVersions(name: string): Promise<SecretVersion[]> {
@@ -54,7 +54,7 @@ export class AzureBackend implements SecretBackend {
         return;
       }
 
-      console.log(`Disabling ${toDisable.length} old version(s) of ${name}`);
+      console.error(`Disabling ${toDisable.length} old version(s) of ${name}`);
       for (const version of toDisable) {
         if (!version.id) {
           continue;

@@ -94,7 +94,7 @@ export function ensureGitignoreEntry(
   const gitignorePath = path.join(cwd, ".gitignore");
   if (!fs.existsSync(gitignorePath)) {
     writeFileSecure(gitignorePath, `${entry}\n`, 0o644);
-    console.log(`Added ${entry} to .gitignore`);
+    console.error(`Added ${entry} to .gitignore`);
     return;
   }
 
@@ -106,7 +106,7 @@ export function ensureGitignoreEntry(
 
   const prefix = contents.endsWith("\n") || contents.length === 0 ? "" : "\n";
   fs.appendFileSync(gitignorePath, `${prefix}${entry}\n`);
-  console.log(`Added ${entry} to .gitignore`);
+  console.error(`Added ${entry} to .gitignore`);
 }
 
 export function resolveLocalKey(keyPath?: string): Buffer {
@@ -175,7 +175,7 @@ export class LocalBackend implements SecretBackend {
       0o600
     );
     writeFileSecure(path.join(this.secretDir(name), "current"), String(next), 0o600);
-    console.log(`Wrote local secret ${name} version ${next}`);
+    console.error(`Wrote local secret ${name} version ${next}`);
   }
 
   async listVersions(name: string): Promise<SecretVersion[]> {
@@ -212,7 +212,7 @@ export class LocalBackend implements SecretBackend {
       return;
     }
 
-    console.log(`Cleaning up ${toDestroy.length} old version(s) of ${name}`);
+    console.error(`Cleaning up ${toDestroy.length} old version(s) of ${name}`);
     for (const version of toDestroy) {
       fs.unlinkSync(path.join(this.versionsDir(name), version.id));
     }

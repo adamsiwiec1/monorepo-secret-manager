@@ -1,3 +1,30 @@
+# Migrating to 3.0
+
+3.0 replaces the flag-based CLI with subcommands. The old flags are gone, so update scripts and CI before upgrading. The SDK and existing `.secrets-config` files keep working.
+
+| 2.x | 3.0 |
+| --- | --- |
+| `msm --init` | `msm init` |
+| `msm --list` | `msm list` |
+| `msm --add-service` / `--remove-service` | `msm add` / `msm rm <name>` |
+| `msm --upload --service all --stg` | `msm push -e staging` |
+| `msm --download --service api --prod --set` | `msm pull api -e production` (always writes targets) |
+| `msm --peek --service all --stg` | `msm peek -e staging` |
+| `msm --cleanup --service api --prod` | `msm prune api -e production` |
+| `--override-sa` | Not needed. msm uses ambient creds when no key file is present. |
+| `--stg` / `--prod` | `-e staging` / `-e production` (or any env name) |
+
+Other changes:
+
+- The service argument is optional and defaults to all services.
+- Add `"defaultEnv": "staging"` to your config to skip `-e` on most commands.
+- `push` and `prune` ask for confirmation on environments whose name starts with `prod`, or that set `"protected": true`. In CI, pass `-y`.
+- Node.js 18 or later is required.
+- Backend progress lines now go to stderr, so `--json` output on stdout stays parseable.
+- `MonorepoSecretManager` methods now return a list of `SecretEvent`s, and `{env}` expands to the env name for anything other than `staging` and `production`.
+
+v3 config adds `defaultEnv`, any environment names, `shared`, `services[].package`, and `services[].uses`. Nothing needs to change in a v2 file to keep using it.
+
 # Migration from gcp-monorepo-secret-manager
 
 npm cannot rename a package. `monorepo-secret-manager` is a new name. The old name stays installable and should be deprecated, not unpublished.
@@ -27,9 +54,9 @@ import { loadConfig, MonorepoSecretManager } from "monorepo-secret-manager";
 
 `GcpMonorepoSecretManager` still works as a deprecated alias for one major version.
 
-The `msm` binary is unchanged, so scripts like `msm --download --service all --stg --set` keep working.
+The `msm` binary name is unchanged. If you also move to 3.0, update CLI calls using the table above.
 
-Existing `.secrets-config` files that use `serviceAccountPaths` and `projectIds` are still valid. They are treated as GCP. Run `msm --init` when you want provider-aware v2 config.
+Existing `.secrets-config` files that use `serviceAccountPaths` and `projectIds` are still valid. They are treated as GCP. Run `msm init` in a fresh checkout when you want a provider-aware config.
 
 ## For maintainers: publish and deprecate
 

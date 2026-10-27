@@ -18,4 +18,6 @@ export {
   BaseConfig,
   ConfigOptions,
   DeletePolicy,
+  SecretEvent,
 } from "./types";
+export { detectWorkspace } from "./workspace";
