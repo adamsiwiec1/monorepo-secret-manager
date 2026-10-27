@@ -1,3 +1,20 @@
+# [3.0.0](https://github.com/adamsiwiec1/monorepo-secret-manager/compare/v2.0.0...v3.0.0) (2026-10-27)
+
+
+* feat!: CLI v3 with subcommands, any env names, and workspace-aware services ([a922153](https://github.com/adamsiwiec1/monorepo-secret-manager/commit/a9221535a39007603d4a8a836bbba9c3799091d1))
+
+
+### Features
+
+* add msm ci setup to configure GitHub Actions via gh ([d3a5610](https://github.com/adamsiwiec1/monorepo-secret-manager/commit/d3a5610d5f0da227568a517ec5cb9307ba4e002d))
+
+
+### BREAKING CHANGES
+
+* the 2.x flags (--upload, --download, --stg, --prod,
+--override-sa, ...) are removed. See MIGRATION.md for the mapping.
+Node.js 18+ is required.
+
 # [2.0.0](https://github.com/adamsiwiec1/monorepo-secret-manager/compare/v1.1.0...v2.0.0) (2026-09-10)
 
 ### Features
