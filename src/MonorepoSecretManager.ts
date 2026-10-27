@@ -81,7 +81,7 @@ export class MonorepoSecretManager {
     if (environment.provider === "gcp" && environment.credentials?.path) {
       if (!fs.existsSync(environment.credentials.path)) {
         throw new Error(
-          `Service account file not found at ${environment.credentials.path}. Pass --ambient-creds to use ambient cloud credentials.`
+          `Service account file not found at ${environment.credentials.path}. Fix the path, or remove credentials.path to use ambient credentials.`
         );
       }
     }

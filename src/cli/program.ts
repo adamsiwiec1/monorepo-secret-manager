@@ -3,15 +3,10 @@ import { Command, CommanderError } from "commander";
 export interface GlobalOptions {
   env?: string;
   config: string;
-  ambientCreds?: boolean;
   dryRun?: boolean;
   json?: boolean;
   yes?: boolean;
   color: boolean;
-}
-
-export interface PullOptions extends GlobalOptions {
-  writeTargets?: boolean;
 }
 
 export interface ExportOptions extends GlobalOptions {
@@ -28,65 +23,45 @@ export interface Handlers {
   status(opts: GlobalOptions): Promise<void>;
   list(opts: GlobalOptions): Promise<void>;
   push(service: string, opts: GlobalOptions): Promise<void>;
-  pull(service: string, opts: PullOptions): Promise<void>;
+  pull(service: string, opts: GlobalOptions): Promise<void>;
   peek(service: string, opts: GlobalOptions): Promise<void>;
   prune(service: string, opts: GlobalOptions): Promise<void>;
   export(service: string, opts: ExportOptions): Promise<void>;
   run(service: string, command: string[], opts: GlobalOptions): Promise<void>;
-  ciSetup(service: string, opts: CiOptions): Promise<void>;
-  serviceAdd(opts: GlobalOptions): Promise<void>;
-  serviceRm(name: string, opts: GlobalOptions): Promise<void>;
+  ci(service: string, opts: CiOptions): Promise<void>;
+  add(opts: GlobalOptions): Promise<void>;
+  rm(name: string, opts: GlobalOptions): Promise<void>;
 }
 
 export const HELP = `msm - monorepo secret manager
 
-Usage:
-  msm <command> [options]
+Usage: msm <command> [service] [options]
 
-Core
-  init                      Set up .secrets-config (detects your workspace)
-  status                    Check config, environments, creds, and SDKs
-  list                      Show services, packages, and items
-  push [service]            Upload secrets (default: all)
-  pull [service]            Download secrets (default: all)
-  peek [service]            Show redacted remote values
-  prune [service]           Drop old remote versions
-  export [service]          Print env values for CI (dotenv, json, github)
-  run [service] -- <cmd>    Run a command with secrets in its env
+  init                  Create .secrets-config (detects your workspace)
+  push [service]        Upload secrets
+  pull [service]        Download secrets and write them to disk
+  run [service] -- cmd  Run a command with secrets in its env
 
-CI
-  ci setup [service]        Write a GitHub Actions workflow via gh
-    --set-secrets           Also set auth secrets with 'gh secret set'
-    --workflow <path>       Default: .github/workflows/msm.yml
-
-Services
-  service add               Add a service interactively
-  service rm <name>         Remove a service
+  status                Check config, creds, and SDKs
+  list, ls              Show services and items
+  peek [service]        Show redacted remote values
+  prune [service]       Drop old remote versions
+  export [service]      Print env values (--format dotenv|json|github)
+  add                   Add a service
+  rm <name>             Remove a service
+  ci [service]          Write a GitHub Actions workflow via gh
+                        (--set-secrets, --workflow <path>)
 
 Options
-  -e, --env <name>          Environment (default: defaultEnv in config)
-  --write-targets           With pull: also write target paths
-  --ambient-creds           Use ambient cloud creds, not a key file
-  --dry-run                 Show what would happen
-  --json                    Machine-readable output
-  -y, --yes                 Skip confirms (required for protected envs in CI)
-  --config <path>           Config file (default: .secrets-config)
-  --no-color                Disable color (NO_COLOR is honored too)
-  -h, --help                Help
-  -V, --version             Version
+  -e, --env <name>      Environment (default: defaultEnv)
+  --dry-run             Show what would happen
+  --json                JSON output
+  -y, --yes             Skip prompts
+  --config <path>       Config file (default: .secrets-config)
+  --no-color            No color (NO_COLOR works too)
 
-Examples
-  msm init
-  msm pull -e staging
-  msm push api -e production -y
-  msm run api -- npm start
-  msm export api -e staging --format github
-  msm ci setup -e staging --set-secrets
+Service defaults to all. Example: msm pull -e staging && msm run api -- npm start
 `;
-
-function globals(command: Command): GlobalOptions {
-  return command.optsWithGlobals() as GlobalOptions;
-}
 
 /**
  * Build the CLI. `runArgs` holds everything after a bare `--`, which `main`
@@ -99,83 +74,61 @@ export function createProgram(
   output?: { writeOut?: (s: string) => void; writeErr?: (s: string) => void }
 ): Command {
   const program = new Command("msm");
-  // Set before subcommands are added so they inherit it.
-  program.exitOverride();
+  program.exitOverride(); // before subcommands so they inherit it
   if (output) program.configureOutput(output);
   program
     .version(version, "-V, --version")
-    .option("-e, --env <name>", "environment")
-    .option("--config <path>", "config file", ".secrets-config")
-    .option("--ambient-creds", "use ambient cloud credentials")
-    .option("--dry-run", "show what would happen")
-    .option("--json", "machine-readable output")
-    .option("-y, --yes", "skip confirms")
-    .option("--no-color", "disable color")
+    .option("-e, --env <name>")
+    .option("--config <path>", "", ".secrets-config")
+    .option("--dry-run")
+    .option("--json")
+    .option("-y, --yes")
+    .option("--no-color")
     .showSuggestionAfterError(true)
     .helpCommand(false);
   program.helpInformation = () => HELP;
 
-  program.command("init").description("set up .secrets-config").action((_o, c) => handlers.init(globals(c)));
-  program.command("status").description("check config, creds, and SDKs").action((_o, c) => handlers.status(globals(c)));
-  program.command("list").alias("ls").description("show services and items").action((_o, c) => handlers.list(globals(c)));
+  const opts = <T = GlobalOptions>(c: Command) => c.optsWithGlobals() as T;
+  const svc = (s?: string) => s || "all";
 
-  for (const verb of ["push", "peek", "prune"] as const) {
-    program
-      .command(`${verb} [service]`)
-      .description(`${verb} secrets (default: all)`)
-      .action((service: string | undefined, _o, c) => handlers[verb](service || "all", globals(c)));
+  program.command("init").action((_o, c) => handlers.init(opts(c)));
+  program.command("status").action((_o, c) => handlers.status(opts(c)));
+  program.command("list").alias("ls").action((_o, c) => handlers.list(opts(c)));
+  program.command("add").action((_o, c) => handlers.add(opts(c)));
+  program.command("rm <name>").alias("remove").action((name: string, _o, c) => handlers.rm(name, opts(c)));
+
+  for (const verb of ["push", "pull", "peek", "prune"] as const) {
+    program.command(`${verb} [service]`).action((s: string | undefined, _o, c) => handlers[verb](svc(s), opts(c)));
   }
 
   program
-    .command("pull [service]")
-    .description("download secrets (default: all)")
-    .option("--write-targets", "also write target paths")
-    .action((service: string | undefined, _o, c) => handlers.pull(service || "all", globals(c) as PullOptions));
-
-  program
     .command("export [service]")
-    .description("print env values for CI")
-    .option("--format <format>", "dotenv | json | github", "dotenv")
-    .action((service: string | undefined, _o, c) => {
-      const opts = globals(c) as ExportOptions;
-      if (opts.json) opts.format = "json";
-      if (!["dotenv", "json", "github"].includes(opts.format)) {
-        throw new CommanderError(1, "msm.format", `Unknown --format '${opts.format}'. Use dotenv, json, or github.`);
+    .option("--format <format>", "", "dotenv")
+    .action((s: string | undefined, _o, c) => {
+      const o = opts<ExportOptions>(c);
+      if (o.json) o.format = "json";
+      if (!["dotenv", "json", "github"].includes(o.format)) {
+        throw new CommanderError(1, "msm.format", `Unknown --format '${o.format}'. Use dotenv, json, or github.`);
       }
-      return handlers.export(service || "all", opts);
+      return handlers.export(svc(s), o);
     });
+
+  program.command("run [service]").action((s: string | undefined, _o, c) => {
+    if (!runArgs.length) throw new CommanderError(1, "msm.run", "Missing command. Usage: msm run [service] -- <cmd>");
+    return handlers.run(svc(s), runArgs, opts(c));
+  });
 
   program
-    .command("run [service]")
-    .description("run a command with secrets in its env")
-    .action((service: string | undefined, _o, c) => {
-      if (runArgs.length === 0) {
-        throw new CommanderError(1, "msm.run", "Missing command. Usage: msm run [service] -- <cmd> [args...]");
-      }
-      return handlers.run(service || "all", runArgs, globals(c));
-    });
-
-  const ci = program.command("ci").description("configure CI");
-  ci.command("setup [service]")
-    .description("write a GitHub Actions workflow via gh")
-    .option("--workflow <path>", "workflow file", ".github/workflows/msm.yml")
-    .option("--set-secrets", "set auth secrets with gh secret set")
-    .action((service: string | undefined, _o, c) => handlers.ciSetup(service || "all", globals(c) as CiOptions));
-
-  const service = program.command("service").description("manage services");
-  service.command("add").description("add a service").action((_o, c) => handlers.serviceAdd(globals(c)));
-  service
-    .command("rm <name>")
-    .alias("remove")
-    .description("remove a service")
-    .action((name: string, _o, c) => handlers.serviceRm(name, globals(c)));
+    .command("ci [service]")
+    .option("--workflow <path>", "", ".github/workflows/msm.yml")
+    .option("--set-secrets")
+    .action((s: string | undefined, _o, c) => handlers.ci(svc(s), opts<CiOptions>(c)));
 
   return program;
 }
 
 /** Split argv at the first bare `--` so `msm run` can pass flags to the child. */
 export function splitRunArgs(argv: string[]): { args: string[]; runArgs: string[] } {
-  const index = argv.indexOf("--");
-  if (index === -1) return { args: argv, runArgs: [] };
-  return { args: argv.slice(0, index), runArgs: argv.slice(index + 1) };
+  const i = argv.indexOf("--");
+  return i === -1 ? { args: argv, runArgs: [] } : { args: argv.slice(0, i), runArgs: argv.slice(i + 1) };
 }

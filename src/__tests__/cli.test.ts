@@ -4,7 +4,7 @@ function handlers(): jest.Mocked<Handlers> {
   const fn = () => jest.fn(async () => undefined);
   return {
     init: fn(), status: fn(), list: fn(), push: fn(), pull: fn(), peek: fn(), prune: fn(),
-    export: fn(), run: fn(), serviceAdd: fn(), serviceRm: fn(),
+    export: fn(), run: fn(), ci: fn(), add: fn(), rm: fn(),
   } as unknown as jest.Mocked<Handlers>;
 }
 
@@ -22,10 +22,10 @@ describe("cli parser", () => {
   });
 
   it("accepts any env name and global flags after the verb", async () => {
-    const h = await parse(["push", "api", "-e", "prod-eu", "-y", "--dry-run", "--json", "--ambient-creds", "--config", "x.json"]);
+    const h = await parse(["push", "api", "-e", "prod-eu", "-y", "--dry-run", "--json", "--config", "x.json"]);
     expect(h.push).toHaveBeenCalledWith(
       "api",
-      expect.objectContaining({ env: "prod-eu", yes: true, dryRun: true, json: true, ambientCreds: true, config: "x.json" })
+      expect.objectContaining({ env: "prod-eu", yes: true, dryRun: true, json: true, config: "x.json" })
     );
   });
 
@@ -34,10 +34,9 @@ describe("cli parser", () => {
     expect(h.pull).toHaveBeenCalledWith("all", expect.objectContaining({ env: "qa" }));
   });
 
-  it("supports --write-targets on pull only", async () => {
-    const h = await parse(["pull", "web", "--write-targets"]);
-    expect(h.pull).toHaveBeenCalledWith("web", expect.objectContaining({ writeTargets: true }));
-    await expect(parse(["push", "--write-targets"])).rejects.toThrow(/unknown option/);
+  it("dropped --write-targets and --ambient-creds", async () => {
+    await expect(parse(["pull", "--write-targets"])).rejects.toThrow(/unknown option/);
+    await expect(parse(["pull", "--ambient-creds"])).rejects.toThrow(/unknown option/);
   });
 
   it("handles --no-color", async () => {
@@ -54,11 +53,13 @@ describe("cli parser", () => {
     await expect(parse(["run"])).rejects.toThrow(/Missing command/);
   });
 
-  it("routes service add and rm", async () => {
-    const h = await parse(["service", "add"]);
-    expect(h.serviceAdd).toHaveBeenCalled();
-    await parse(["service", "rm", "api", "-y"], h);
-    expect(h.serviceRm).toHaveBeenCalledWith("api", expect.objectContaining({ yes: true }));
+  it("routes add, rm, and ci", async () => {
+    const h = await parse(["add"]);
+    expect(h.add).toHaveBeenCalled();
+    await parse(["rm", "api", "-y"], h);
+    expect(h.rm).toHaveBeenCalledWith("api", expect.objectContaining({ yes: true }));
+    await parse(["ci", "api", "--set-secrets"], h);
+    expect(h.ci).toHaveBeenCalledWith("api", expect.objectContaining({ setSecrets: true, workflow: ".github/workflows/msm.yml" }));
   });
 
   it("maps export --json to json format and rejects unknown formats", async () => {

@@ -5,7 +5,7 @@ import { MonorepoSecretManager, SHARED_SERVICE } from "../MonorepoSecretManager"
 import { addService, initializeConfig } from "../cliInit";
 import { createPrompt } from "../prompt";
 import { SecretEvent } from "../types";
-import { CiOptions, ExportOptions, GlobalOptions, Handlers, PullOptions } from "./program";
+import { CiOptions, ExportOptions, GlobalOptions, Handlers } from "./program";
 import { CI_SECRETS, GhRunner, renderWorkflow, requireGh, runGh, writeWorkflow } from "./ci";
 import { Colors, makeColors, shouldColor } from "./ui";
 
@@ -120,14 +120,17 @@ export function createHandlers(io: Io = defaultIo): Handlers {
     }
   };
 
-  const manager = (opts: GlobalOptions, env: string, c: Colors) =>
-    new MonorepoSecretManager({
+  // No key file on disk means ambient creds (ADC, OIDC, managed identity).
+  const manager = (opts: GlobalOptions, env: string, c: Colors) => {
+    const keyFile = config(opts).getEnvironmentConfig(env).credentials?.path;
+    return new MonorepoSecretManager({
       environment: env,
-      overrideSa: opts.ambientCreds,
+      overrideSa: !keyFile || !fs.existsSync(keyFile),
       configPath: opts.config,
       dryRun: opts.dryRun,
       onEvent: reporter(opts, c),
     });
+  };
 
   const op = (verb: "push" | "pull" | "peek" | "prune") => async (service: string, opts: GlobalOptions) => {
     const c = colors(opts);
@@ -140,10 +143,7 @@ export function createHandlers(io: Io = defaultIo): Handlers {
     if (verb === "push") events.push(...(await msm.uploadEnv(service)));
     if (verb === "peek") events.push(...(await msm.peekEnv(service)));
     if (verb === "prune") events.push(...(await msm.cleanupVersions(service)));
-    if (verb === "pull") {
-      events.push(...(await msm.downloadEnv(service)));
-      if ((opts as PullOptions).writeTargets) events.push(...(await msm.setEnv(service)));
-    }
+    if (verb === "pull") events.push(...(await msm.downloadEnv(service)), ...(await msm.setEnv(service)));
     summarize(opts, c, env, events);
   };
 
@@ -174,14 +174,14 @@ export function createHandlers(io: Io = defaultIo): Handlers {
           }
         });
         const credsPath = env.credentials?.path;
-        const credsOk = !credsPath || fs.existsSync(credsPath) || Boolean(opts.ambientCreds);
+        const credsOk = Boolean(credsPath && fs.existsSync(credsPath));
         return {
           name,
           provider: env.provider,
           default: name === defaultEnv,
           protected: cfg.isProtected(name),
           missingSdks,
-          credentials: credsPath ? (credsOk ? "ok" : `missing ${credsPath}`) : "ambient",
+          credentials: credsOk ? "key file" : "ambient",
         };
       });
       const services = cfg.getServiceNames().length;
@@ -194,7 +194,6 @@ export function createHandlers(io: Io = defaultIo): Handlers {
       for (const env of envs) {
         const issues = [
           ...env.missingSdks.map((sdk) => `npm i ${sdk}`),
-          ...(env.credentials.startsWith("missing") ? [env.credentials] : []),
         ];
         problems += issues.length;
         const tags = [env.default && "default", env.protected && "protected"].filter(Boolean).join(", ");
@@ -216,7 +215,7 @@ export function createHandlers(io: Io = defaultIo): Handlers {
         return;
       }
       if (!services.length && !shared.length) {
-        io.out(c.dim("No services yet. Run 'msm service add'."));
+        io.out(c.dim("No services yet. Run 'msm add'."));
         return;
       }
       const item = (i: { kind: string; remoteName: string }) => `    ${c.dim(i.kind.padEnd(12))} ${i.remoteName}`;
@@ -232,7 +231,7 @@ export function createHandlers(io: Io = defaultIo): Handlers {
     },
 
     push: op("push"),
-    pull: op("pull") as Handlers["pull"],
+    pull: op("pull"),
     peek: op("peek"),
     prune: op("prune"),
 
@@ -285,7 +284,7 @@ export function createHandlers(io: Io = defaultIo): Handlers {
       process.exitCode = code;
     },
 
-    ciSetup: async (service: string, opts: CiOptions) => {
+    ci: async (service: string, opts: CiOptions) => {
       const c = colors(opts);
       const gh = io.gh || runGh;
       const cfg = config(opts);
@@ -319,11 +318,11 @@ export function createHandlers(io: Io = defaultIo): Handlers {
       }
     },
 
-    serviceAdd: async (opts) => {
+    add: async (opts) => {
       await addService(opts.config);
     },
 
-    serviceRm: async (name, opts) => {
+    rm: async (name, opts) => {
       const c = colors(opts);
       const cfg = config(opts);
       checkService(cfg, name);

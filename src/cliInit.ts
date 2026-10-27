@@ -88,14 +88,14 @@ export async function initializeConfig(options: InitOptions): Promise<SecretsCon
 
   try {
     if (fs.existsSync(options.configPath)) {
-      throw new Error(`${options.configPath} already exists. Edit it, or use 'msm service add'.`);
+      throw new Error(`${options.configPath} already exists. Edit it, or use 'msm add'.`);
     }
 
     const workspace = detectWorkspace(root);
     log(
       workspace.tools.length
         ? `Detected ${workspace.tools.join(" + ")} workspace with ${workspace.packages.length} package(s)`
-        : "No workspace tool detected. Add services later with 'msm service add'."
+        : "No workspace tool detected. Add services later with 'msm add'."
     );
 
     const envNames = (await ask("Environments (comma separated)", "staging,production"))

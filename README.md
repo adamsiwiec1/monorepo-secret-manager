@@ -67,7 +67,7 @@ Upgrading from 2.x or from `gcp-monorepo-secret-manager`? See [MIGRATION.md](./M
 - Node.js 18 or later
 - A backend for each environment you configure
 - Credentials that can read and write secrets on that backend:
-  - GCP: a service-account JSON file, or ADC / Workload Identity (`--ambient-creds`)
+  - GCP: a service-account JSON file, or ADC / Workload Identity (used when no key file is present)
   - AWS: the default credential chain or `AWS_PROFILE`
   - Azure: `DefaultAzureCredential`
   - Local: `MSM_LOCAL_KEY` or `.msm/key` (created by `msm init`)
@@ -82,7 +82,7 @@ Recommended IAM (or equivalent): write access for `push` and `prune`, read acces
 msm init               # detects your workspace, writes .secrets-config
 # fill in apps/*/.env.stg and friends
 msm push               # all services, default env
-msm pull --write-targets
+msm pull               # writes source and target paths
 msm run api -- npm run dev
 ```
 
@@ -111,7 +111,7 @@ Use the CLI when several services share one config file. Use `loadConfig` when a
 1. `.secrets-config` lists environments (provider + credentials), shared secrets, and services.
 2. Each item has a kind, local paths, and a `remoteName` on the backend. When a service sets `package`, relative paths resolve inside that package.
 3. `push` reads the local files and stores them under that name. Typed kinds go in a JSON envelope so every backend can carry them, including Azure (string-only).
-4. `pull` writes the latest version back to the source path. `--write-targets` also writes target paths.
+4. `pull` writes the latest version to the source and target paths.
 5. `{env}` in paths becomes `stg` for `staging`, `prod` for `production`, and the env name for anything else.
 
 With no service argument, a command runs on every service plus `shared`. Naming a service limits it to that service. `pull`, `peek`, `export`, and `run` also include the shared items the service `uses`.
@@ -203,7 +203,7 @@ Each service can have one or more items:
 | `environments.*.region` | AWS region. |
 | `environments.*.vaultUrl` | Azure Key Vault URL. |
 | `environments.*.storePath` | Local encrypted store directory. |
-| `environments.*.credentials.path` | GCP service-account JSON. Unused with `--ambient-creds`. |
+| `environments.*.credentials.path` | GCP service-account JSON. If the file is missing, msm uses ambient credentials. |
 | `environments.*.credentials.profile` | Optional AWS profile. |
 | `environments.*.protected` | Confirm before `push` and `prune`. Defaults to `true` for names starting with `prod`. |
 | `shared[]` | Items used by more than one package. Paths resolve from the repo root. |
@@ -244,51 +244,44 @@ gcloud/**/*.json
 ## CLI
 
 ```text
-msm <command> [options]
+Usage: msm <command> [service] [options]
 
-Core
-  init                      Set up .secrets-config (detects your workspace)
-  status                    Check config, environments, creds, and SDKs
-  list                      Show services, packages, and items
-  push [service]            Upload secrets (default: all)
-  pull [service]            Download secrets (default: all)
-  peek [service]            Show redacted remote values
-  prune [service]           Drop old remote versions
-  export [service]          Print env values for CI (dotenv, json, github)
-  run [service] -- <cmd>    Run a command with secrets in its env
+  init                  Create .secrets-config (detects your workspace)
+  push [service]        Upload secrets
+  pull [service]        Download secrets and write them to disk
+  run [service] -- cmd  Run a command with secrets in its env
 
-CI
-  ci setup [service]        Write a GitHub Actions workflow via gh
-    --set-secrets           Also set auth secrets with 'gh secret set'
-    --workflow <path>       Default: .github/workflows/msm.yml
-
-Services
-  service add               Add a service interactively
-  service rm <name>         Remove a service
+  status                Check config, creds, and SDKs
+  list, ls              Show services and items
+  peek [service]        Show redacted remote values
+  prune [service]       Drop old remote versions
+  export [service]      Print env values (--format dotenv|json|github)
+  add                   Add a service
+  rm <name>             Remove a service
+  ci [service]          Write a GitHub Actions workflow via gh
+                        (--set-secrets, --workflow <path>)
 
 Options
-  -e, --env <name>          Environment (default: defaultEnv in config)
-  --write-targets           With pull: also write target paths
-  --ambient-creds           Use ambient cloud creds, not a key file
-  --dry-run                 Show what would happen
-  --json                    Machine-readable output
-  -y, --yes                 Skip confirms (required for protected envs in CI)
-  --config <path>           Config file (default: .secrets-config)
-  --no-color                Disable color (NO_COLOR is honored too)
-  -h, --help                Help
-  -V, --version             Version
+  -e, --env <name>      Environment (default: defaultEnv)
+  --dry-run             Show what would happen
+  --json                JSON output
+  -y, --yes             Skip prompts
+  --config <path>       Config file (default: .secrets-config)
+  --no-color            No color (NO_COLOR works too)
+
+Service defaults to all. Example: msm pull -e staging && msm run api -- npm start
 ```
 
 ```bash
 msm list
 msm push api
 msm push -e production -y
-msm pull -e staging --write-targets
+msm pull -e staging
 msm peek api -e production
 msm prune --dry-run
 msm run api -- npm start
 msm export api --format json
-msm service rm worker -y
+msm rm worker -y
 ```
 
 `run` and `export` merge env-file values in order: shared items first, then the service's own, so a service can override a shared key. `run` also sets `MSM_ENV` and exits with the child's exit code.
@@ -299,7 +292,7 @@ Optional scripts in a consuming repo:
 {
   "scripts": {
     "dev": "msm run web -- next dev",
-    "env:pull": "msm pull --write-targets",
+    "env:pull": "msm pull",
     "env:push": "msm push"
   }
 }
@@ -391,7 +384,7 @@ Also exported: `ConfigManager`, `loadConfig`, `createBackend`, `getKind`, `initS
 
 ## CI/CD
 
-Authenticate with the provider's short-lived identity (GCP [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation), AWS roles, Azure managed identity), then pull with `--ambient-creds`. A full example lives in [`.github/workflows/example-usage.yml`](.github/workflows/example-usage.yml).
+Authenticate with the provider's short-lived identity (GCP [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation), AWS roles, Azure managed identity), then run msm. With no key file it uses those ambient credentials. A full example lives in [`.github/workflows/example-usage.yml`](.github/workflows/example-usage.yml).
 
 ```yaml
 - uses: google-github-actions/auth@v2
@@ -402,21 +395,21 @@ Authenticate with the provider's short-lived identity (GCP [Workload Identity Fe
 - run: npm install -g monorepo-secret-manager @google-cloud/secret-manager
 
 # write files for the build
-- run: msm pull -e staging --write-targets --ambient-creds
+- run: msm pull -e staging
 
 # or load values into later steps, masked in logs
-- run: msm export api -e staging --format github --ambient-creds
+- run: msm export api -e staging --format github
 ```
 
 `--format github` adds `::add-mask::` for every value and appends to `$GITHUB_ENV`. Non-interactive runs fail on protected envs unless you pass `-y`, so a CI `push` to production needs it explicitly.
 
 Checkout must include `.secrets-config`. Prefer federated identity over checking in a JSON key.
 
-### Set up CI with `gh`
+### `msm ci`
 
 ```bash
-msm ci setup -e staging --dry-run       # preview
-msm ci setup api -e staging --set-secrets
+msm ci -e staging --dry-run       # preview
+msm ci api -e staging --set-secrets
 ```
 
 Requires the [GitHub CLI](https://cli.github.com), logged in (`gh auth login`). The command:
@@ -454,7 +447,7 @@ msm prune -e staging --dry-run
 - Treat `.environments/`, downloaded `.env` files, `.msm/key`, TLS keys, SSH private keys, and cloud credential files as secrets. Do not commit them.
 - `msm peek` redacts values. Still avoid piping peek output into shared logs if you have customized kinds.
 - Grant the smallest role that matches the job (read vs write/admin).
-- Use `--ambient-creds` with short-lived credentials in CI instead of long-lived keys.
+- In CI, use short-lived federated credentials instead of long-lived key files.
 - Keep `deletePolicy` enabled so unused versions do not pile up against provider quotas.
 - The local store is refused if it is tracked by git. Keep `.msm/` ignored.
 

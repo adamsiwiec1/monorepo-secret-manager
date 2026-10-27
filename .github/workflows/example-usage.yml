@@ -34,7 +34,7 @@ jobs:
           npm install -g @google-cloud/secret-manager
 
       - name: Download staging environments
-        run: msm pull -e staging --write-targets --ambient-creds
+        run: msm pull -e staging
 
       - name: Install dependencies
         run: npm install
@@ -74,7 +74,7 @@ jobs:
           npm install -g @google-cloud/secret-manager
 
       - name: Download production environments
-        run: msm pull -e production --write-targets --ambient-creds
+        run: msm pull -e production
 
       - name: Install dependencies
         run: npm install

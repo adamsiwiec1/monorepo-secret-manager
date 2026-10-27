@@ -6,12 +6,12 @@
 | --- | --- |
 | `msm --init` | `msm init` |
 | `msm --list` | `msm list` |
-| `msm --add-service` / `--remove-service` | `msm service add` / `msm service rm <name>` |
+| `msm --add-service` / `--remove-service` | `msm add` / `msm rm <name>` |
 | `msm --upload --service all --stg` | `msm push -e staging` |
-| `msm --download --service api --prod --set` | `msm pull api -e production --write-targets` |
+| `msm --download --service api --prod --set` | `msm pull api -e production` (always writes targets) |
 | `msm --peek --service all --stg` | `msm peek -e staging` |
 | `msm --cleanup --service api --prod` | `msm prune api -e production` |
-| `--override-sa` | `--ambient-creds` |
+| `--override-sa` | Not needed. msm uses ambient creds when no key file is present. |
 | `--stg` / `--prod` | `-e staging` / `-e production` (or any env name) |
 
 Other changes:

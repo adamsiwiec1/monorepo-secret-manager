@@ -60,7 +60,7 @@ describe("cli handlers (local provider)", () => {
     await h.push("all", opts());
     fs.rmSync("apps/api/.env.stg");
     out = [];
-    await h.pull("all", { ...opts({ json: true }), writeTargets: true });
+    await h.pull("all", opts({ json: true }));
     const result = JSON.parse(out.join("\n"));
     expect(result.env).toBe("staging");
     expect(result.results.map((r: { action: string }) => r.action)).toEqual(["pull", "write"]);
@@ -126,12 +126,12 @@ describe("cli handlers (local provider)", () => {
     ]);
   });
 
-  it("service rm removes with -y", async () => {
-    await createHandlers(io).serviceRm("api", opts({ yes: true }));
+  it("rm removes with -y", async () => {
+    await createHandlers(io).rm("api", opts({ yes: true }));
     expect(JSON.parse(fs.readFileSync(".secrets-config", "utf8")).services).toEqual([]);
   });
 
-  describe("ci setup", () => {
+  describe("ci", () => {
     const useGcp = () => {
       const config = JSON.parse(fs.readFileSync(".secrets-config", "utf8"));
       config.environments.ci = { provider: "gcp", projectId: "p" };
@@ -152,12 +152,12 @@ describe("cli handlers (local provider)", () => {
     it("fails clearly when gh is logged out", async () => {
       useGcp();
       const h = createHandlers({ ...io, gh: fakeGh([], "", 1) });
-      await expect(h.ciSetup("all", ciOpts())).rejects.toThrow("gh auth login");
+      await expect(h.ci("all", ciOpts())).rejects.toThrow("gh auth login");
     });
 
     it("rejects the local provider", async () => {
       const h = createHandlers({ ...io, gh: fakeGh([]) });
-      await expect(h.ciSetup("all", { ...ciOpts(), env: "staging" })).rejects.toThrow("gitignored");
+      await expect(h.ci("all", { ...ciOpts(), env: "staging" })).rejects.toThrow("gitignored");
     });
 
     it("writes the workflow once and sets secrets from env without echoing them", async () => {
@@ -166,19 +166,19 @@ describe("cli handlers (local provider)", () => {
       const h = createHandlers({ ...io, gh: fakeGh(calls, "WIF_SERVICE_ACCOUNT\n") });
       process.env.WIF_PROVIDER = "super-secret";
       try {
-        await h.ciSetup("api", ciOpts({ setSecrets: true }));
+        await h.ci("api", ciOpts({ setSecrets: true }));
       } finally {
         delete process.env.WIF_PROVIDER;
       }
       const yml = fs.readFileSync(".github/workflows/msm.yml", "utf8");
-      expect(yml).toContain("msm export api -e ci --format github --ambient-creds");
+      expect(yml).toContain("msm export api -e ci --format github");
       expect(yml).toContain("google-github-actions/auth@v2");
       expect(calls).toContainEqual([["secret", "set", "WIF_PROVIDER"], "super-secret"]);
       expect(out.join("\n")).not.toContain("super-secret");
       expect(out.join("\n")).toContain("WIF_SERVICE_ACCOUNT exists");
 
       out = [];
-      await h.ciSetup("api", ciOpts());
+      await h.ci("api", ciOpts());
       expect(out[0]).toContain("unchanged");
     });
 
@@ -187,7 +187,7 @@ describe("cli handlers (local provider)", () => {
       const calls: [string[], string | undefined][] = [];
       process.env.WIF_PROVIDER = "x";
       try {
-        await createHandlers({ ...io, gh: fakeGh(calls) }).ciSetup("all", ciOpts({ dryRun: true, setSecrets: true }));
+        await createHandlers({ ...io, gh: fakeGh(calls) }).ci("all", ciOpts({ dryRun: true, setSecrets: true }));
       } finally {
         delete process.env.WIF_PROVIDER;
       }
