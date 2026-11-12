@@ -74,7 +74,7 @@ ${authStep(spec.provider, spec.region)}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install -g monorepo-secret-manager ${SDK[spec.provider]}
+      - run: npm install -g @devrecated/monorepo-secret-manager ${SDK[spec.provider]}
       - run: msm export${target} -e ${spec.env} --format github${configFlag}
       # Secrets are now env vars for the steps below. Add your build here.
       - run: echo "secrets loaded for ${spec.env}"

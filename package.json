@@ -1,5 +1,5 @@
 {
-  "name": "monorepo-secret-manager",
+  "name": "@devrecated/monorepo-secret-manager",
   "version": "3.0.0",
   "description": "A multi-cloud secret manager for monorepos. Sync env files, SSH keys, TLS bundles, and other secret kinds to GCP, AWS, Azure, or a local encrypted store.",
   "main": "dist/index.js",
@@ -121,5 +121,8 @@
       "lcov",
       "html"
     ]
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

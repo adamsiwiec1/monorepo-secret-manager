@@ -1,10 +1,10 @@
 # Monorepo Secret Manager
 
-[![npm version](https://img.shields.io/npm/v/monorepo-secret-manager.svg)](https://www.npmjs.com/package/monorepo-secret-manager)
-[![npm downloads](https://img.shields.io/npm/dm/monorepo-secret-manager.svg)](https://www.npmjs.com/package/monorepo-secret-manager)
+[![npm version](https://img.shields.io/npm/v/@devrecated/monorepo-secret-manager.svg)](https://www.npmjs.com/package/@devrecated/monorepo-secret-manager)
+[![npm downloads](https://img.shields.io/npm/dm/@devrecated/monorepo-secret-manager.svg)](https://www.npmjs.com/package/@devrecated/monorepo-secret-manager)
 [![CI](https://github.com/adamsiwiec1/monorepo-secret-manager/actions/workflows/publish.yml/badge.svg)](https://github.com/adamsiwiec1/monorepo-secret-manager/actions/workflows/publish.yml)
-[![license](https://img.shields.io/npm/l/monorepo-secret-manager.svg)](LICENSE)
-[![node](https://img.shields.io/node/v/monorepo-secret-manager.svg)](https://www.npmjs.com/package/monorepo-secret-manager)
+[![license](https://img.shields.io/npm/l/@devrecated/monorepo-secret-manager.svg)](LICENSE)
+[![node](https://img.shields.io/node/v/@devrecated/monorepo-secret-manager.svg)](https://www.npmjs.com/package/@devrecated/monorepo-secret-manager)
 
 CLI and TypeScript SDK for syncing env files, SSH keypairs, TLS bundles, JSON, and binary secrets across a monorepo. Store them in [GCP Secret Manager](https://cloud.google.com/secret-manager), [AWS Secrets Manager](https://docs.aws.amazon.com/secretsmanager/), [Azure Key Vault](https://learn.microsoft.com/azure/key-vault/), or a local encrypted store.
 
@@ -15,8 +15,8 @@ You keep files on disk next to each package (or under `.environments/`). `msm pu
 ## Install
 
 ```bash
-npm install -g monorepo-secret-manager   # global CLI: msm
-npm install monorepo-secret-manager      # project dependency: npx msm, plus the SDK
+npm install -g @devrecated/monorepo-secret-manager   # global CLI: msm
+npm install @devrecated/monorepo-secret-manager      # project dependency: npx msm, plus the SDK
 ```
 
 Add the SDK for the cloud backend you use (the local store is built in):
@@ -76,7 +76,7 @@ msm run api -- npm run dev
 **Single service (SDK)**
 
 ```ts
-import { loadConfig } from "monorepo-secret-manager";
+import { loadConfig } from "@devrecated/monorepo-secret-manager";
 
 await loadConfig({
   serviceName: "api",
@@ -280,7 +280,7 @@ The default `secretName` is **not** the same as a v2 `remoteName`. Pass `secretN
 
 ```ts
 import express from "express";
-import { loadConfig } from "monorepo-secret-manager";
+import { loadConfig } from "@devrecated/monorepo-secret-manager";
 
 async function main() {
   await loadConfig({
@@ -308,7 +308,7 @@ Call `loadConfig` once at startup. Do not log secret values.
 Same operations as the CLI, driven by `.secrets-config`. Every method returns one `SecretEvent` per item. Pass `onEvent` to handle output yourself and `dryRun: true` to skip writes.
 
 ```ts
-import { MonorepoSecretManager } from "monorepo-secret-manager";
+import { MonorepoSecretManager } from "@devrecated/monorepo-secret-manager";
 
 const secrets = new MonorepoSecretManager({
   environment: "production",
@@ -350,7 +350,7 @@ Authenticate with the provider's short-lived identity (GCP [Workload Identity Fe
     workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
     service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
-- run: npm install -g monorepo-secret-manager @google-cloud/secret-manager
+- run: npm install -g @devrecated/monorepo-secret-manager @google-cloud/secret-manager
 
 # write files for the build
 - run: msm pull -e staging

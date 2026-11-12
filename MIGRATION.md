@@ -33,7 +33,7 @@ npm cannot rename a package. `monorepo-secret-manager` is a new name. The old na
 
 ```bash
 npm uninstall gcp-monorepo-secret-manager
-npm install monorepo-secret-manager
+npm install @devrecated/monorepo-secret-manager
 ```
 
 If you use GCP, also install the optional SDK:
@@ -49,7 +49,7 @@ Update imports:
 import { loadConfig, GcpMonorepoSecretManager } from "gcp-monorepo-secret-manager";
 
 // after
-import { loadConfig, MonorepoSecretManager } from "monorepo-secret-manager";
+import { loadConfig, MonorepoSecretManager } from "@devrecated/monorepo-secret-manager";
 ```
 
 `GcpMonorepoSecretManager` still works as a deprecated alias for one major version.
